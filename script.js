@@ -1,10 +1,23 @@
 // --- Game Setup ---
 const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
+if (!canvas) {
+    console.error('Canvas element not found!');
+} else {
+    console.log('Canvas found:', canvas);
+}
+const ctx = canvas ? canvas.getContext('2d') : null;
+if (!ctx) {
+    console.error('Canvas context is not available!');
+} else {
+    console.log('Canvas context initialized:', ctx);
+}
 
 // Set canvas size
-canvas.width = 800;
-canvas.height = 600;
+if (canvas) {
+    canvas.width = 800;
+    canvas.height = 600;
+    console.log('Canvas size set to 800x600');
+}
 
 // Game state variables
 let score = 0;
@@ -18,12 +31,39 @@ const player = {
     height: 20,
     speed: 5,
     health: 100,
+    maxHealth: 150,
     type: 'LightJet',
     fireRate: 10,
     fireCooldown: 0,
     missileCount: 6,
+    maxMissiles: 50,
     missileRechargeTime: 0,
-    powerUps: { speedBoost: 0, fastFire: 0, multiShot: 0 }
+    powerUps: { speedBoost: 0, fastFire: 0, multiShot: 0 },
+    powerUpDurationBase: 5,
+    draw: function() { // Added draw method to player object
+        ctx.save();
+        ctx.fillStyle = '#00ccff'; // Explicitly blue for player
+        ctx.strokeStyle = '#00ccff';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(this.x - this.width / 2, this.y - this.height / 2);
+        ctx.lineTo(this.x - this.width / 4, this.y - this.height / 2);
+        ctx.lineTo(this.x, this.y - this.height / 4);
+        ctx.lineTo(this.x + this.width / 4, this.y - this.height / 2);
+        ctx.lineTo(this.x + this.width / 2, this.y - this.height / 2);
+        ctx.lineTo(this.x + this.width / 4, this.y + this.height / 2);
+        ctx.lineTo(this.x - this.width / 4, this.y + this.height / 2);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(this.x, this.y + this.height / 2);
+        ctx.lineTo(this.x, this.y + this.height * 2);
+        ctx.stroke();
+        ctx.restore();
+        console.log('Player drawn at:', this.x, this.y);
+    }
 };
 
 // Arrays to store game entities
@@ -31,7 +71,7 @@ let enemies = [];
 let projectiles = [];
 let missiles = [];
 let powerUps = [];
-let enemyProjectiles = []; // For enemy shots
+let enemyProjectiles = [];
 
 // Keyboard and mouse input handling
 const keys = {
@@ -41,7 +81,10 @@ const keys = {
     ArrowDown: false,
     Space: false
 };
-canvas.addEventListener('click', handleMouseClick);
+if (canvas) {
+    canvas.addEventListener('click', handleMouseClick);
+    console.log('Click event listener added to canvas');
+}
 
 // Event listeners for keyboard input
 document.addEventListener('keydown', (e) => {
@@ -53,7 +96,7 @@ document.addEventListener('keyup', (e) => {
 
 // --- Entity Classes ---
 
-// Ship class for both player and enemies
+// Ship class for enemies
 class Ship {
     constructor(x, y, width, height, speed, health, type, damage) {
         this.x = x;
@@ -64,7 +107,7 @@ class Ship {
         this.health = health;
         this.type = type;
         this.damage = damage;
-        this.fireRate = 60; // Default fire rate for enemies
+        this.fireRate = 60;
         this.fireCooldown = 0;
     }
 
@@ -72,9 +115,14 @@ class Ship {
     draw() {
         ctx.save();
         if (this.type === 'LightJet') {
-            ctx.fillStyle = this.health > 0 ? '#00ccff' : '#ff0000'; // Blue for player, red for enemy LightJet
-            ctx.strokeStyle = this.health > 0 ? '#00ccff' : '#ff0000';
-            ctx.lineWidth = 2;
+            ctx.fillStyle = '#ff0000'; // Red for enemy LightJet
+            ctx.strokeStyle = '#ff0000';
+        } else if (this.type === 'Recognizer') {
+            ctx.fillStyle = '#ff4500'; // Orange for Recognizers
+            ctx.strokeStyle = '#ff4500';
+        }
+        ctx.lineWidth = 2;
+        if (this.type === 'LightJet') {
             ctx.beginPath();
             ctx.moveTo(this.x - this.width / 2, this.y - this.height / 2);
             ctx.lineTo(this.x - this.width / 4, this.y - this.height / 2);
@@ -86,15 +134,12 @@ class Ship {
             ctx.closePath();
             ctx.fill();
             ctx.stroke();
-            ctx.strokeStyle = this.health > 0 ? '#00ccff' : '#ff0000';
             ctx.lineWidth = 3;
             ctx.beginPath();
             ctx.moveTo(this.x, this.y + this.height / 2);
             ctx.lineTo(this.x, this.y + this.height * 2);
             ctx.stroke();
         } else if (this.type === 'Recognizer') {
-            ctx.fillStyle = '#ff4500';
-            ctx.strokeStyle = '#ff4500';
             ctx.lineWidth = 3;
             ctx.beginPath();
             ctx.moveTo(this.x - this.width / 2, this.y - this.height / 2);
@@ -114,6 +159,7 @@ class Ship {
             ctx.stroke();
         }
         ctx.restore();
+        console.log('Enemy drawn at:', this.x, this.y, 'type:', this.type);
     }
 
     // Update ship position and behavior
@@ -125,7 +171,7 @@ class Ship {
             const dx = player.x - this.x;
             const dy = player.y - this.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
-            if (distance > 50) { // Avoid jitter near player
+            if (distance > 50) {
                 this.x += (dx / distance) * this.speed;
                 this.y += (dy / distance) * this.speed;
             }
@@ -254,14 +300,25 @@ class PowerUp {
 // Spawn an enemy based on score
 function spawnEnemy() {
     let type, health, speed, damage;
-    if (score >= 1500) {
+    if (score >= 2000) {
+        type = Math.random() < 0.5 ? 'LightJet' : 'Recognizer'; // 50/50 chance
+        if (type === 'LightJet') {
+            health = 30;
+            speed = 2;
+            damage = 10;
+        } else {
+            health = 75;
+            speed = 1.5;
+            damage = 25;
+        }
+    } else if (score >= 1500) {
         type = 'LightJet';
         health = 30;
         speed = 2;
         damage = 10;
     } else if (score >= 500) {
         type = 'Recognizer';
-        health = 75; // Tougher Recognizers
+        health = 75;
         speed = 1.5;
         damage = 25;
     } else {
@@ -280,8 +337,9 @@ function spawnEnemy() {
         type,
         damage
     );
-    if (type === 'LightJet') enemy.fireRate = 120; // Slower shooting for red LightJets
+    if (type === 'LightJet') enemy.fireRate = 120;
     enemies.push(enemy);
+    console.log('Enemy spawned:', type, 'at', enemy.x, enemy.y);
 }
 
 // Spawn a power-up at enemy position
@@ -291,12 +349,13 @@ function spawnPowerUp(x, y) {
     const powerUp = new PowerUp(x, y, type);
     powerUps.push(powerUp);
     if (Math.random() < 0.3) {
-        player.missileCount = Math.min(player.missileCount + 1, 6);
+        player.missileCount = Math.min(player.missileCount + 1, player.maxMissiles);
         updateUI();
     }
+    console.log('Power-up spawned:', type, 'at', x, y);
 }
 
-// Handle player movement with power-up effects
+// Handle player movement with power-up effects and health recovery
 function movePlayer() {
     let currentSpeed = player.speed;
     if (player.powerUps.speedBoost > 0) {
@@ -314,6 +373,10 @@ function movePlayer() {
     }
     if (keys.ArrowDown && player.y + player.height / 2 < canvas.height) {
         player.y += currentSpeed;
+    }
+    if (player.health < player.maxHealth) {
+        player.health = Math.min(player.health + 0.1, player.maxHealth);
+        updateUI();
     }
 }
 
@@ -352,8 +415,7 @@ function playerShoot() {
         player.fireCooldown--;
     }
 
-    // Recharge missiles over time
-    if (player.missileCount < 6 && player.missileRechargeTime <= 0) {
+    if (player.missileCount < player.maxMissiles && player.missileRechargeTime <= 0) {
         player.missileCount++;
         player.missileRechargeTime = 300;
         updateUI();
@@ -471,14 +533,16 @@ function checkCollisions() {
             player.y + player.height / 2 > powerUp.y - powerUp.height / 2 &&
             player.y - powerUp.height / 2 < powerUp.y + powerUp.height / 2
         ) {
+            const duration = player.powerUpDurationBase + Math.floor((score / 100) / 3);
             if (powerUp.type === 'speedBoost') {
-                player.powerUps.speedBoost = 300;
+                player.powerUps.speedBoost += duration * 60;
             } else if (powerUp.type === 'fastFire') {
-                player.powerUps.fastFire = 300;
+                player.powerUps.fastFire += duration * 60;
             } else if (powerUp.type === 'multiShot') {
-                player.powerUps.multiShot = 300;
+                player.powerUps.multiShot += duration * 60;
             }
             powerUps.splice(powerUpIndex, 1);
+            updateUI();
         }
     });
 }
@@ -486,7 +550,7 @@ function checkCollisions() {
 // Update UI elements including power-up status
 function updateUI() {
     document.getElementById('score-value').textContent = score;
-    document.getElementById('health-value').textContent = player.health;
+    document.getElementById('health-value').textContent = Math.floor(player.health);
     document.getElementById('missile-value').textContent = player.missileCount;
     const powerUpStatus = document.getElementById('power-up-status');
     powerUpStatus.innerHTML = '';
@@ -515,7 +579,7 @@ function gameLoop() {
     // Update player
     movePlayer();
     playerShoot();
-    new Ship(player.x, player.y, player.width, player.height, player.speed, player.health, player.type, 10).draw();
+    player.draw(); // Draw player using its own draw method
 
     // Spawn enemies periodically
     if (Math.random() < 0.02) {
